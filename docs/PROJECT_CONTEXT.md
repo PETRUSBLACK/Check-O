@@ -1,6 +1,6 @@
 # SmartMall Project Context
 
-Last updated: 2026-05-02 (Phase 1 closed, verification refreshed)
+Last updated: 2026-05-06 (vendor verification onboarding)
 
 ## Project Goal
 Build a scalable smart commerce ecosystem combining:
@@ -44,66 +44,50 @@ Build a scalable smart commerce ecosystem combining:
 
 ## API Router
 Configured in `backend/config/api_urls.py`:
+- `/api/health/`
+- `/api/auth/register/` — optional `vendor_business` payload for vendors (creates draft business profile)
+- `/api/auth/token/`, `/api/auth/token/refresh/`, `/api/auth/me/`
 - `/api/users/`
-- `/api/businesses/`
-- `/api/products/`
-- `/api/orders/`
-- `/api/payments/`
-- `/api/shipments/`
-- `/api/notifications/`
-- `/api/subscriptions/`
-- `/api/promotions/`
-- `/api/analytics-events/`
+- `/api/businesses/` — see vendor verification actions below
+- `/api/products/` — vendors blocked from creating products until business is **approved** (platform admins can override)
+- `/api/orders/`, `/api/payments/`, `/api/shipments/`
+- `/api/notifications/`, `/api/subscriptions/`, `/api/promotions/`, `/api/analytics-events/`
+- Docs: `/api/schema/`, `/api/docs/`, `/api/redoc/`
+
+## Vendor verification (onboarding)
+- New businesses default to **`draft`** until the vendor completes profile fields and submits for review.
+- **Required before submit:** `legal_name`, `registration_number`, `address` (plus display `name` / `slug`).
+- **Flow:** `draft` → **POST** `submit-for-review` → `pending` → admin **approve** / **reject** → `approved` / `rejected` (rejected vendors can edit and resubmit).
+- **Endpoints:**
+  - `POST /api/businesses/{id}/submit-for-review/`
+  - `POST /api/businesses/{id}/approve/` (staff or `role=admin`)
+  - `POST /api/businesses/{id}/reject/` body `{ "reason": "..." }` (staff or `role=admin`)
+- **Products:** creation requires `business.status == approved` for vendors; staff/platform admin may bypass for support.
 
 ## Important Implemented Service Flows
 - Order creation and stock deduction in `apps.orders.services.order_service`
 - Payment initiation/confirmation in `apps.payments.services.gateway`
 - Shipment status updates + websocket push in `apps.delivery.services.shipment_service`
+- Business registration / submit / approve / reject in `apps.businesses.services.registration`
 
 ## Verification Status
-Previously completed in this workspace:
-- Installed backend dependencies
-- Generated initial migrations
-- Applied migrations
-- `python manage.py check` passed without issues
-- All migrations currently applied (`python manage.py showmigrations`)
-- Swagger/OpenAPI + ReDoc enabled and configured
-- Health endpoint added (`/api/health/`)
-- Re-ran backend verification successfully:
-  - `python manage.py check`
-  - `python manage.py spectacular --file schema.yml --validate`
-  - `python manage.py showmigrations`
-- OpenAPI schema file generated at `backend/schema.yml`
-
-Note: Some later terminal checks were interrupted by the IDE/session, but the successful verification run had already completed earlier.
+- Migrations: `businesses.0003_vendor_verification_fields` applied
+- Last run: `python manage.py check` — no issues
+- Swagger/OpenAPI + ReDoc enabled; health at `/api/health/`
 
 ## Phase Status
 - Phase 1 (Foundation & Architecture): complete
-- Phase 2 (Identity & Access): started
+- Phase 2 (Identity & Access): in progress — vendor onboarding verification implemented
 
-## Known Gaps / Next Priorities (Phase 2+)
-1. Tighten order/payment/shipment state machines and permission matrix
-2. Add provider adapters (Flutterwave/Paystack/Stripe; GIG/Kwik/DHL)
-3. Add tests (unit + API + integration)
-4. Start React Native app scaffold and wire first customer flow
-5. Add CI and lint/format/test automation
-
-## Recent Updates
-- Added auth endpoints:
-  - `/api/auth/register/`
-  - `/api/auth/token/`
-  - `/api/auth/token/refresh/`
-  - `/api/auth/me/`
-- Added API docs:
-  - Swagger UI: `/api/docs/`
-  - ReDoc: `/api/redoc/`
-  - OpenAPI schema: `/api/schema/`
-- Added modern Django admin theming with `jazzmin`.
-- Added `README.md` quick-start and service URL references.
-- Hardened viewsets for schema generation compatibility (`swagger_fake_view` handling + explicit `queryset` on key viewsets).
+## Known Gaps / Next Priorities
+1. Optional email/phone OTP verification for customers and vendors (separate from business approval)
+2. Payment/logistics provider adapters (Flutterwave/Paystack/Stripe; GIG/Kwik/DHL)
+3. Automated tests (API + state transitions + onboarding)
+4. React Native app scaffold + first flows
+5. CI (lint, test, migrate check)
 
 ## Resume Prompt (for future sessions)
 When resuming work, read this file first, then:
-1. Confirm backend still passes `python manage.py check`
-2. Implement next priority in "Known Gaps / Next Priorities"
-3. Keep business logic in service layer and maintain modular app boundaries
+1. Run `python manage.py check` in `backend/`
+2. Pick the next item under Known Gaps / Next Priorities
+3. Keep business logic in services and thin views

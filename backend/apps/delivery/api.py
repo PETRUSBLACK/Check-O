@@ -46,19 +46,27 @@ class ShipmentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         order = serializer.validated_data["order"]
-        shipment = create_shipment(
-            order_id=order.pk,
-            mode=serializer.validated_data["mode"],
-            partner=serializer.validated_data.get("partner", ""),
-            tracking_number=serializer.validated_data.get("tracking_number", ""),
-        )
+        try:
+            shipment = create_shipment(
+                order_id=order.pk,
+                mode=serializer.validated_data["mode"],
+                partner=serializer.validated_data.get("partner", ""),
+                tracking_number=serializer.validated_data.get("tracking_number", ""),
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             ShipmentSerializer(shipment).data,
             status=status.HTTP_201_CREATED,
             headers=self.get_success_headers(ShipmentSerializer(shipment).data),
         )
 
-    @action(detail=True, methods=["post"], url_path="status")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="status",
+        permission_classes=[IsAuthenticated, IsVendorOrAdmin],
+    )
     @extend_schema(
         tags=["delivery"],
         summary="Update shipment status",
@@ -68,5 +76,10 @@ class ShipmentViewSet(viewsets.ModelViewSet):
         new_status = request.data.get("status")
         if not new_status:
             return Response({"detail": "status required"}, status=400)
-        shipment = update_shipment_status(shipment_id=UUID(str(pk)), status=new_status)
+        try:
+            shipment = update_shipment_status(
+                shipment_id=UUID(str(pk)), status=new_status
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ShipmentSerializer(shipment).data)

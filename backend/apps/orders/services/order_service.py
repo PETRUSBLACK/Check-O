@@ -12,6 +12,18 @@ class OrderFlowError(Exception):
     pass
 
 
+_ALLOWED_TRANSITIONS = {
+    OrderStatus.DRAFT.value: {OrderStatus.PENDING_PAYMENT.value, OrderStatus.CANCELLED.value},
+    OrderStatus.PENDING_PAYMENT.value: {OrderStatus.PAID.value, OrderStatus.CANCELLED.value},
+    OrderStatus.PAID.value: {OrderStatus.PROCESSING.value, OrderStatus.CANCELLED.value},
+    OrderStatus.PROCESSING.value: {OrderStatus.PACKAGING.value, OrderStatus.CANCELLED.value},
+    OrderStatus.PACKAGING.value: {OrderStatus.SHIPPED.value},
+    OrderStatus.SHIPPED.value: {OrderStatus.DELIVERED.value},
+    OrderStatus.DELIVERED.value: set(),
+    OrderStatus.CANCELLED.value: set(),
+}
+
+
 def _lines_from_payload(lines: Iterable[dict]) -> list[tuple[UUID, int]]:
     out: list[tuple[UUID, int]] = []
     for row in lines:
@@ -57,6 +69,11 @@ def transition_order_status(*, order_id: UUID, to_status: str) -> Order:
     valid = {c.value for c in OrderStatus}
     if to_status not in valid:
         raise OrderFlowError("Invalid status")
+    if order.status == to_status:
+        return order
+    allowed = _ALLOWED_TRANSITIONS.get(order.status, set())
+    if to_status not in allowed:
+        raise OrderFlowError(f"Invalid status transition from {order.status} to {to_status}")
     order.status = to_status
     order.save(update_fields=["status", "updated_at"])
     return order

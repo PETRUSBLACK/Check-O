@@ -35,6 +35,12 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
         summary="Initiate a payment for current user's order",
     )
     def initiate(self, request):
+        role = getattr(request.user, "role", None)
+        if role != "customer":
+            return Response(
+                {"detail": "Only customers can initiate payment."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         order_id = request.data.get("order_id")
         provider = request.data.get("provider")
         if not order_id or not provider:
@@ -49,7 +55,10 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
                 amount=order.total,
             )
         except ValueError:
-            return Response({"detail": "Invalid provider"}, status=400)
+            return Response(
+                {"detail": "Invalid provider or order already paid"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
@@ -58,5 +67,8 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
         summary="Mock-confirm payment success (admin only)",
     )
     def mock_confirm(self, request, pk=None):
-        payment = confirm_payment_success(payment_id=UUID(str(pk)))
+        try:
+            payment = confirm_payment_success(payment_id=UUID(str(pk)))
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PaymentSerializer(payment).data)

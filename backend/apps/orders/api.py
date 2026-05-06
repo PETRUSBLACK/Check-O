@@ -6,13 +6,31 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
-from apps.orders.models import Order
+from apps.orders.models import Order, OrderItem, OrderStatus
 from apps.orders.serializers import OrderCreateSerializer, OrderSerializer
 from apps.orders.services.order_service import (
     OrderFlowError,
     create_order_with_lines,
     transition_order_status,
 )
+from core.permissions import IsCustomer
+
+# Vendor may advance fulfillment after payment (same as order state machine forward steps).
+_VENDOR_TRANSITION_TARGETS = {
+    OrderStatus.PROCESSING.value,
+    OrderStatus.PACKAGING.value,
+    OrderStatus.SHIPPED.value,
+    OrderStatus.DELIVERED.value,
+}
+
+
+def _vendor_fulfills_order(user, order: Order) -> bool:
+    if getattr(user, "role", None) != "vendor":
+        return False
+    return OrderItem.objects.filter(
+        order=order,
+        product__business__owner=user,
+    ).exists()
 
 
 class OrderViewSet(
@@ -43,6 +61,11 @@ class OrderViewSet(
         summary="Create order with line items",
     )
     def create(self, request, *args, **kwargs):
+        if not IsCustomer().has_permission(request, self):
+            return Response(
+                {"detail": "Only customers can create orders."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         ser = OrderCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
@@ -72,8 +95,31 @@ class OrderViewSet(
         if not to_status:
             return Response({"detail": "status required"}, status=400)
         order = self.get_object()
-        if order.customer_id != request.user.id and not request.user.is_staff:
-            return Response(status=403)
+        role = getattr(request.user, "role", None)
+        is_admin = bool(request.user.is_staff or role == "admin")
+        is_owner = order.customer_id == request.user.id
+        is_fulfillment_vendor = _vendor_fulfills_order(request.user, order)
+
+        if is_admin:
+            pass
+        elif is_owner:
+            if to_status != OrderStatus.CANCELLED.value:
+                return Response(
+                    {"detail": "Customers can only cancel their own orders."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif is_fulfillment_vendor:
+            if to_status not in _VENDOR_TRANSITION_TARGETS:
+                return Response(
+                    {
+                        "detail": "Vendors may only advance fulfillment "
+                        "(processing, packaging, shipped, delivered).",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        else:
+            return Response({"detail": "Forbidden."}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             transition_order_status(order_id=UUID(str(pk)), to_status=to_status)
         except OrderFlowError as e:

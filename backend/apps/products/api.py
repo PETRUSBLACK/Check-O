@@ -1,7 +1,7 @@
 from rest_framework import permissions, status, viewsets
 from rest_framework.response import Response
 
-from apps.businesses.models import Business
+from apps.businesses.models import Business, BusinessStatus
 from core.permissions import IsVendorOrAdmin
 
 from .models import Product
@@ -42,6 +42,18 @@ class ProductViewSet(viewsets.ModelViewSet):
             and business.owner_id != request.user.id
         ):
             raise permissions.PermissionDenied("Not your business.")
+        if business.status != BusinessStatus.APPROVED:
+            if not (
+                request.user.is_staff
+                or getattr(request.user, "role", None) == "admin"
+            ):
+                return Response(
+                    {
+                        "detail": "Business must be approved by the platform before "
+                        "you can list products. Complete verification and wait for approval."
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         product = create_product(
             business=business,
             name=serializer.validated_data["name"],

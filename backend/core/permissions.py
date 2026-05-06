@@ -28,3 +28,15 @@ class IsVendorOrAdmin(BasePermission):
             return True
         role = getattr(u, "role", None)
         return role in ("vendor", "admin")
+
+
+class IsStaffOrPlatformAdmin(BasePermission):
+    """Django staff/superuser OR user.role == admin."""
+
+    def has_permission(self, request, view):
+        u = request.user
+        if not u or not u.is_authenticated:
+            return False
+        if u.is_staff:
+            return True
+        return getattr(u, "role", None) == "admin"

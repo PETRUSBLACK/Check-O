@@ -22,6 +22,8 @@ def initiate_payment(
 ) -> Payment:
     if provider not in _VALID_PROVIDERS:
         raise ValueError("invalid provider")
+    if Payment.objects.filter(order_id=order_id, status=PaymentStatus.SUCCESS).exists():
+        raise ValueError("order already paid")
     payment = Payment.objects.create(
         order_id=order_id,
         provider=provider,
@@ -35,6 +37,12 @@ def initiate_payment(
 @transaction.atomic
 def confirm_payment_success(*, payment_id: UUID) -> Payment:
     payment = Payment.objects.select_for_update().select_related("order").get(pk=payment_id)
+    if payment.status == PaymentStatus.SUCCESS:
+        return payment
+    if payment.status == PaymentStatus.FAILED:
+        raise ValueError("cannot confirm failed payment")
+    if payment.order.status != OrderStatus.PENDING_PAYMENT.value:
+        raise ValueError("order not awaiting payment")
     payment.status = PaymentStatus.SUCCESS
     payment.save(update_fields=["status", "updated_at"])
     transition_order_status(order_id=payment.order_id, to_status=OrderStatus.PAID.value)
